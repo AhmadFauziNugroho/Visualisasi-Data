@@ -3,7 +3,7 @@ import base64
 from PIL import Image
 
 st.title("Praktikum 01 - VisDat")
-st.caption("2-data-elements")
+st.caption("3-data-media")
 st.markdown("""
             - KAYS ELHAQ RABBANI - 0110222218
             - AHMAD FAUZI NUGROHO - 0110222293

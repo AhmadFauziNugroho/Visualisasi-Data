@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 st.title("Praktikum 01 - VisDat")
-st.caption("2-data-elements")
+st.caption("5-forms")
 st.markdown("""
             - KAYS ELHAQ RABBANI - 0110222218
             - AHMAD FAUZI NUGROHO - 0110222293

@@ -2,7 +2,7 @@ import streamlit as st
 import time
 
 st.title("Praktikum 01 - VisDat")
-st.caption("2-data-elements")
+st.caption("4-buttons-sliders")
 st.markdown("""
             - KAYS ELHAQ RABBANI - 0110222218
             - AHMAD FAUZI NUGROHO - 0110222293
