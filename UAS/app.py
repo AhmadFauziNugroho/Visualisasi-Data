@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime
+from typing import List
+import os
 
-# KONFIGURASI STREAMLIT
+# KONFIGURASI HALAMAN
 st.set_page_config(
     page_title="Dashboard APBD Jawa Barat 2020",
     page_icon="📊",
@@ -12,246 +12,238 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# STYLING
-st.markdown("""
-<style>
-html, body, [class*="css"] {font-family: 'Inter', sans-serif;}
-.main-title {font-size:2.6em;font-weight:700;color:#0f172a;text-align:center}
-.subtitle {font-size:1.05em;color:#64748b;text-align:center;margin-bottom:30px}
-.metric-box {background:linear-gradient(135deg,#f8fafc,#eef2ff);padding:20px;border-radius:14px;box-shadow:0 8px 20px rgba(0,0,0,0.04);text-align:center}
-.metric-title {font-size:.9em;color:#475569}
-.metric-value {font-size:1.7em;font-weight:700;color:#1e293b}
-.section-title {font-size:1.4em;font-weight:600;margin-bottom:10px;color:#1e293b}
-</style>
-""", unsafe_allow_html=True)
+# FUNGSI UNTUK MEMUAT CSS EKSTERNAL
+def local_css(file_name: str):
+    """Memuat file CSS lokal ke dalam aplikasi Streamlit."""
+    if os.path.exists(file_name):
+        with open(file_name) as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    else:
+        st.error(f"File CSS '{file_name}' tidak ditemukan.")
 
-# LOAD DATA
+# FUNGSI DATA
 @st.cache_data
-def load_data():
-    return pd.read_excel('./Data_APBD_2020_Jawa_Barat.xlsx')
+def load_data(file_path: str) -> pd.DataFrame:
+    """Memuat dan membersihkan data APBD dari file Excel."""
+    try:
+        df = pd.read_excel(file_path)
+        
+        # Konversi nilai anggaran ke numerik
+        df['Nilaianggaran'] = pd.to_numeric(df['Nilaianggaran'], errors='coerce').fillna(0)
+        
+        # Pembersihan kolom teks
+        text_cols = ['Namapemda', 'standarutama', 'standarjenis', 'Namaakunobjek']
+        for col in text_cols:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.strip().replace(['nan', 'None', ''], 'Lainnya')
+        
+        return df
+    except Exception as e:
+        st.error(f"Gagal memuat data: {e}")
+        return pd.DataFrame(columns=['Namapemda', 'standarutama', 'standarjenis', 'Namaakunobjek', 'Nilaianggaran'])
 
-df = load_data()
-df['Nilaianggaran'] = pd.to_numeric(df['Nilaianggaran'], errors='coerce')
+def filter_data(df: pd.DataFrame, tipe: List[str], daerah: List[str]) -> pd.DataFrame:
+    """Memfilter dataframe berdasarkan input pengguna."""
+    df_filtered = df.copy()
+    if tipe:
+        df_filtered = df_filtered[df_filtered['standarutama'].isin(tipe)]
+    if daerah:
+        df_filtered = df_filtered[df_filtered['Namapemda'].isin(daerah)]
+    return df_filtered
 
-# HEADER
-st.markdown('<div class="main-title">📊 APBD Jawa Barat 2020</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Distribusi dan Analisis Pendapatan, Belanja, dan Pembiayaan Daerah</div>', unsafe_allow_html=True)
-
-# SIDEBAR
-st.sidebar.header("🔍 Filter Data")
-
-tipe_anggaran = st.sidebar.multiselect(
-    "Tipe Anggaran",
-    df['standarutama'].unique(),
-    df['standarutama'].unique()
-)
-
-daerah = st.sidebar.multiselect(
-    "Daerah",
-    sorted(df['Namapemda'].unique()),
-    []
-)
-
-df_filtered = df.copy()
-if tipe_anggaran:
-    df_filtered = df_filtered[df_filtered['standarutama'].isin(tipe_anggaran)]
-if daerah:
-    df_filtered = df_filtered[df_filtered['Namapemda'].isin(daerah)]
-
-# METRICS
-st.markdown("### 📈 Ringkasan Utama")
-c1, c2, c3, c4 = st.columns(4)
-
-def metric_card(col, title, value):
-    col.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-title">{title}</div>
-            <div class="metric-value">{value}</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-metric_card(c1, "Total Anggaran", f"Rp {df_filtered['Nilaianggaran'].sum()/1e12:.2f} T")
-metric_card(c2, "Total Belanja", f"Rp {df_filtered[df_filtered['standarutama'].str.contains('Belanja')]['Nilaianggaran'].sum()/1e12:.2f} T")
-metric_card(c3, "Total Pendapatan", f"Rp {df_filtered[df_filtered['standarutama'].str.contains('Pendapatan')]['Nilaianggaran'].sum()/1e12:.2f} T")
-metric_card(c4, "Jumlah Daerah", f"{df_filtered['Namapemda'].nunique()} Daerah")
-
-st.divider()
-
-# TABS 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "📊 Overview",
-    "💰 Belanja Daerah",
-    "🏛️ Jenis Belanja",
-    "💵 Pendapatan Daerah",
-    "🏦 Pembiayaan Daerah",
-    "📋 Detail Data",
-    "🌡️ Heatmap Belanja"
-])
-
-# TAB 1: OVERVIEW
-with tab1:
-    st.markdown('<div class="section-title">Komposisi Anggaran Utama</div>', unsafe_allow_html=True)
-    col1, col2 = st.columns([1, 1])
-
-    komposisi = df_filtered.groupby('standarutama')['Nilaianggaran'].sum().reset_index()
-    komposisi['Persentase'] = komposisi['Nilaianggaran'] / komposisi['Nilaianggaran'].sum() * 100
-
-    with col1:
-        fig = px.pie(
-            komposisi,
-            values='Nilaianggaran',
-            names='standarutama',
-            hole=0.45,
-            color_discrete_sequence=px.colors.qualitative.Pastel
-        )
-        fig.update_traces(textinfo='percent+label')
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        komposisi['Nilai'] = komposisi['Nilaianggaran'].apply(lambda x: f"Rp {x/1e12:.2f} T")
-        st.dataframe(komposisi[['standarutama','Nilai']], use_container_width=True, hide_index=True)
-
-# TAB 2: BELANJA DAERAH
-with tab2:
-    st.markdown('<div class="section-title">Belanja Kabupaten / Kota</div>', unsafe_allow_html=True)
-
-    belanja_df = df_filtered[
-        (df_filtered['standarutama'].str.contains('Belanja', na=False)) &
-        (df_filtered['Namapemda'] != 'Provinsi Jawa Barat')
-    ]
-
-    belanja = belanja_df.groupby('Namapemda')['Nilaianggaran'].sum().sort_values(ascending=False)
-    top_n = st.slider("Top N Daerah", 5, len(belanja), 10)
-
-    fig = go.Figure(go.Bar(
-        x=belanja.head(top_n)/1e12,
-        y=belanja.head(top_n).index,
-        orientation='h',
-        marker=dict(color=belanja.head(top_n).values, colorscale='Blues')
-    ))
-    fig.update_layout(template="plotly_white", height=520)
-    st.plotly_chart(fig, use_container_width=True)
-
-# TAB 3: JENIS BELANJA
-with tab3:
-    st.markdown('<div class="section-title">Belanja Berdasarkan Jenis</div>', unsafe_allow_html=True)
-
-    jenis = df_filtered[df_filtered['standarutama'].str.contains('Belanja', na=False)] \
-        .groupby('standarjenis')['Nilaianggaran'].sum().sort_values()
-
-    fig = go.Figure(go.Bar(
-        x=jenis/1e12,
-        y=jenis.index,
-        orientation='h',
-        marker=dict(color=jenis.values, colorscale='Viridis')
-    ))
-    fig.update_layout(template="plotly_white", height=600)
-    st.plotly_chart(fig, use_container_width=True)
-
-# TAB 4: PENDAPATAN DAERAH
-with tab4:
-    st.markdown('<div class="section-title">Pendapatan Kabupaten / Kota</div>', unsafe_allow_html=True)
-
-    pendapatan = df_filtered[
-        (df_filtered['standarutama'].str.contains('Pendapatan', na=False)) &
-        (df_filtered['Namapemda'] != 'Provinsi Jawa Barat')
-    ].groupby('Namapemda')['Nilaianggaran'].sum().sort_values(ascending=False)
-
-    fig = go.Figure(go.Bar(
-        x=pendapatan/1e12,
-        y=pendapatan.index,
-        orientation='h',
-        marker=dict(color=pendapatan.values, colorscale='Greens')
-    ))
-    fig.update_layout(template="plotly_white", height=600)
-    st.plotly_chart(fig, use_container_width=True)
-
-# TAB 5: PEMBIAYAAN DAERAH
-with tab5:
-    st.markdown('<div class="section-title">Pembiayaan Kabupaten / Kota</div>', unsafe_allow_html=True)
-
-    pembiayaan = df_filtered[
-        (df_filtered['standarutama'].str.contains('Pembiayaan', na=False)) &
-        (df_filtered['Namapemda'] != 'Provinsi Jawa Barat')
-    ].groupby('Namapemda')['Nilaianggaran'].sum().sort_values(ascending=False)
-
-    fig = go.Figure(go.Bar(
-        x=pembiayaan/1e12,
-        y=pembiayaan.index,
-        orientation='h',
-        marker=dict(color=pembiayaan.values, colorscale='Purples')
-    ))
-    fig.update_layout(template="plotly_white", height=600)
-    st.plotly_chart(fig, use_container_width=True)
-
-# TAB 6: DETAIL DATA
-with tab6:
-    df_disp = df_filtered.copy()
-    df_disp['Nilaianggaran'] = df_disp['Nilaianggaran'].apply(lambda x: f"Rp {x/1e9:.2f} M")
-
-    st.dataframe(
-        df_disp[['Namapemda','standarutama','standarjenis','Namaakunobjek','Nilaianggaran']],
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.download_button(
-        "📥 Download CSV",
-        df_disp.to_csv(index=False),
-        f"APBD_Jawa_Barat_2020_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        "text/csv"
-    )
-
-# TAB 7: HEATMAP BELANJA
-with tab7:
+# KOMPONEN UI
+def render_metric_card(title: str, value: str):
+    """Render kartu metrik menggunakan class CSS dari style.css."""
     st.markdown(
-        '<div class="section-title">Heatmap Pengeluaran (Belanja) Kabupaten / Kota</div>',
+        f'<div class="metric-box">'
+        f'<div class="metric-title">{title}</div>'
+        f'<div class="metric-value">{value}</div>'
+        f'</div>', 
         unsafe_allow_html=True
     )
 
-    heatmap_df = df_filtered[
-        (df_filtered['standarutama'].str.contains('Belanja', na=False)) &
-        (df_filtered['Namapemda'] != 'Provinsi Jawa Barat')
-    ]
+def format_triliun(value: float) -> str:
+    """Format angka ke satuan Triliun Rupiah."""
+    return f"Rp {value/1e12:.2f} T"
 
-    pivot_df = heatmap_df.pivot_table(
-        index='Namapemda',
-        columns='standarjenis',
-        values='Nilaianggaran',
-        aggfunc='sum'
-    ) / 1e12  # Triliun
+# MAIN APPLICATION
+def main():
+    # 1. Load External CSS
+    local_css("style.css")
+    
+    # 2. Load Data
+    DATA_PATH = './Data_APBD_2020_Jawa_Barat.xlsx'
+    df = load_data(DATA_PATH)
+    
+    if df.empty:
+        st.warning("Data tidak tersedia. Pastikan file Excel berada di direktori yang benar.")
+        return
 
-    pivot_df = pivot_df.fillna(0)
+    # 3. Header Section
+    st.markdown('<div class="main-title">📊 Dashboard APBD Jawa Barat 2020</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Analisis Distribusi Anggaran, Pendapatan, dan Keseimbangan Fiskal</div>', unsafe_allow_html=True)
 
-    fig = px.imshow(
-        pivot_df,
-        aspect="auto",
-        color_continuous_scale=[
-            [0.0, "white"],
-            [0.01, "#fff7bc"],
-            [0.25, "#fee391"],
-            [0.5, "#fec44f"],
-            [0.75, "#fe9929"],
-            [1.0, "#cc4c02"]
-        ],
-        labels=dict(
-            x="Jenis Belanja",
-            y="Kabupaten / Kota",
-            color="Triliun Rupiah"
-        ),
-        zmin=0
-    )
+    # 4. Sidebar Filters
+    st.sidebar.header("🔍 Filter Global")
+    tipe_options = df['standarutama'].unique()
+    tipe_anggaran = st.sidebar.multiselect("Tipe Anggaran Utama", tipe_options, default=tipe_options)
+    
+    daerah_options = sorted(df['Namapemda'].unique())
+    daerah_selected = st.sidebar.multiselect("Pilih Daerah (Kosongkan untuk Semua)", daerah_options)
 
-    fig.update_layout(
-        height=700,
-        xaxis_tickangle=-45,
-        template="plotly_white"
-    )
+    # 5. Data Filtering
+    df_filtered = filter_data(df, tipe_anggaran, daerah_selected)
 
-    st.plotly_chart(fig, use_container_width=True)
+    # 6. Key Metrics
+    m1, m2, m3, m4 = st.columns(4)
+    total_anggaran = df_filtered['Nilaianggaran'].sum()
+    total_belanja = df_filtered[df_filtered['standarutama'].str.contains('Belanja', na=False)]['Nilaianggaran'].sum()
+    total_pendapatan = df_filtered[df_filtered['standarutama'].str.contains('Pendapatan', na=False)]['Nilaianggaran'].sum()
+    
+    with m1: render_metric_card("Total Anggaran", format_triliun(total_anggaran))
+    with m2: render_metric_card("Total Belanja", format_triliun(total_belanja))
+    with m3: render_metric_card("Total Pendapatan", format_triliun(total_pendapatan))
+    with m4: render_metric_card("Jumlah Entitas", f"{df_filtered['Namapemda'].nunique()} Daerah")
 
+    st.markdown("<br>", unsafe_allow_html=True)
 
+    # 7. Tabs Navigation
+    tabs = st.tabs([
+        "📈 Overview", "📍 Belanja Daerah", "📊 Jenis Belanja", 
+        "💰 Pendapatan", "⚖️ Fiskal", "📋 Detail", "🔥 Heatmap"
+    ])
 
-# FOOTER
-st.divider()
-st.markdown("<center style='color:#94a3b8;'>Dashboard APBD Jawa Barat 2020 • Streamlit</center>", unsafe_allow_html=True)
+    # --- TAB 1: OVERVIEW ---
+    with tabs[0]:
+        st.markdown('<div class="section-title">Komposisi Anggaran Utama</div>', unsafe_allow_html=True)
+        col_chart, col_info = st.columns([2, 1])
+        komposisi = df_filtered.groupby('standarutama')['Nilaianggaran'].sum().reset_index()
+        
+        with col_chart:
+            fig = px.pie(komposisi, values='Nilaianggaran', names='standarutama', hole=0.5, 
+                         color_discrete_sequence=px.colors.qualitative.Safe)
+            fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0))
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with col_info:
+            st.markdown("<br>"*2, unsafe_allow_html=True)
+            for _, row in komposisi.iterrows():
+                st.write(f"**{row['standarutama']}**")
+                st.info(format_triliun(row['Nilaianggaran']))
+
+    # --- TAB 2: BELANJA DAERAH ---
+    with tabs[1]:
+        st.markdown('<div class="section-title">Perbandingan Belanja antar Daerah</div>', unsafe_allow_html=True)
+        belanja_df = df_filtered[
+            (df_filtered['standarutama'].str.contains('Belanja', na=False)) & 
+            (df_filtered['Namapemda'] != 'Provinsi Jawa Barat')
+        ]
+        if not belanja_df.empty:
+            belanja = belanja_df.groupby('Namapemda')['Nilaianggaran'].sum().sort_values(ascending=True)
+            fig = px.bar(belanja, x='Nilaianggaran', y=belanja.index, orientation='h', 
+                         color='Nilaianggaran', color_continuous_scale='Blues')
+            fig.update_layout(height=600, coloraxis_showscale=False, yaxis_title=None)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Data belanja tidak ditemukan untuk filter ini.")
+
+    # --- TAB 3: JENIS BELANJA ---
+    with tabs[2]:
+        st.markdown('<div class="section-title">Analisis Jenis Belanja</div>', unsafe_allow_html=True)
+        belanja_jenis_df = df_filtered[df_filtered['standarutama'].str.contains('Belanja', na=False)]
+        
+        if not belanja_jenis_df.empty:
+            c_left, c_right = st.columns([1, 1.5])
+            with c_left:
+                st.markdown('<div class="insight-card"><div class="insight-header">🔝 5 Jenis Belanja Terbesar</div>', unsafe_allow_html=True)
+                top_jenis = belanja_jenis_df.groupby('standarjenis')['Nilaianggaran'].sum().nlargest(5).reset_index()
+                top_jenis['Nilai'] = top_jenis['Nilaianggaran'].apply(format_triliun)
+                st.table(top_jenis[['standarjenis', 'Nilai']])
+                st.markdown('</div>', unsafe_allow_html=True)
+                st.info("💡 Grafik menunjukkan perbandingan total anggaran per kategori belanja.")
+
+            with c_right:
+                total_per_jenis = belanja_jenis_df.groupby('standarjenis')['Nilaianggaran'].sum().sort_values(ascending=True).reset_index()
+                fig_bar = px.bar(total_per_jenis, x='Nilaianggaran', y='standarjenis', orientation='h', 
+                                 color='Nilaianggaran', color_continuous_scale='Viridis')
+                fig_bar.update_layout(height=500, coloraxis_showscale=False, margin=dict(l=0, r=20, t=20, b=20))
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+    # --- TAB 4: PENDAPATAN ---
+    with tabs[3]:
+        st.markdown('<div class="section-title">Komposisi Pendapatan Daerah</div>', unsafe_allow_html=True)
+        pend_df = df_filtered[
+            (df_filtered['standarutama'].str.contains('Pendapatan', na=False)) & 
+            (df_filtered['Namapemda'] != 'Provinsi Jawa Barat')
+        ]
+        
+        if not pend_df.empty:
+            comp_pend = pend_df.groupby(['Namapemda', 'standarjenis'])['Nilaianggaran'].sum().reset_index()
+            
+            # Hitung Rasio PAD
+            pad_val = comp_pend[comp_pend['standarjenis'].str.contains('ASLI DAERAH|PAD', na=False, case=False)].groupby('Namapemda')['Nilaianggaran'].sum().reset_index()
+            total_pend = comp_pend.groupby('Namapemda')['Nilaianggaran'].sum().reset_index()
+            ratio_df = pd.merge(pad_val, total_pend, on='Namapemda', suffixes=('_PAD', '_Total'))
+            ratio_df['Rasio_PAD'] = (ratio_df['Nilaianggaran_PAD'] / ratio_df['Nilaianggaran_Total']) * 100
+            ratio_df = ratio_df.sort_values('Rasio_PAD', ascending=False)
+
+            c_l, c_r = st.columns([1, 1.5])
+            with c_l:
+                st.markdown('<div class="insight-card"><div class="insight-header">🏆 Top 5 Daerah Mandiri</div>', unsafe_allow_html=True)
+                st.dataframe(ratio_df[['Namapemda', 'Rasio_PAD']].head(5).style.format({'Rasio_PAD': '{:.2f}%'}), 
+                             hide_index=True, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            with c_r:
+                fig_stack = px.bar(comp_pend, x='Namapemda', y='Nilaianggaran', color='standarjenis', barmode='stack')
+                fig_stack.update_layout(xaxis_tickangle=-45, height=500, legend=dict(orientation="h", y=1.1))
+                st.plotly_chart(fig_stack, use_container_width=True)
+        else:
+            st.warning("Data pendapatan tidak tersedia.")
+
+    # --- TAB 5: FISKAL ---
+    with tabs[4]:
+        st.markdown('<div class="section-title">Analisis Keseimbangan & Pembiayaan</div>', unsafe_allow_html=True)
+        summary = df_filtered[df_filtered['Namapemda'] != 'Provinsi Jawa Barat'].groupby(['Namapemda', 'standarutama'])['Nilaianggaran'].sum().unstack(fill_value=0)
+        
+        cols = summary.columns
+        c_pend = [c for c in cols if 'Pendapatan' in c]
+        c_belanja = [c for c in cols if 'Belanja' in c]
+        
+        if c_pend and c_belanja:
+            summary['Total_Pendapatan'] = summary[c_pend].sum(axis=1)
+            summary['Total_Belanja'] = summary[c_belanja].sum(axis=1)
+            summary['Surplus/Defisit'] = summary['Total_Pendapatan'] - summary['Total_Belanja']
+            summary = summary.reset_index()
+            
+            fig_bubble = px.scatter(summary, x='Total_Pendapatan', y='Total_Belanja', 
+                                    size=summary['Total_Pendapatan'].abs()/1e10, color='Surplus/Defisit', 
+                                    hover_name='Namapemda', color_continuous_scale='RdYlGn')
+            
+            max_val = max(summary['Total_Pendapatan'].max(), summary['Total_Belanja'].max())
+            fig_bubble.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val, line=dict(color="black", dash="dash"))
+            st.plotly_chart(fig_bubble, use_container_width=True)
+
+    # --- TAB 6: DETAIL ---
+    with tabs[5]:
+        st.markdown('<div class="section-title">Eksplorasi Data Mentah</div>', unsafe_allow_html=True)
+        st.dataframe(df_filtered, use_container_width=True)
+
+    # --- TAB 7: HEATMAP ---
+    with tabs[6]:
+        st.markdown('<div class="section-title">Heatmap Intensitas Anggaran</div>', unsafe_allow_html=True)
+        heatmap_df = df_filtered[
+            (df_filtered['standarutama'].str.contains('Belanja', na=False)) & 
+            (df_filtered['Namapemda'] != 'Provinsi Jawa Barat')
+        ]
+        if not heatmap_df.empty:
+            pivot_df = heatmap_df.pivot_table(index='Namapemda', columns='standarjenis', values='Nilaianggaran', aggfunc='sum').fillna(0)
+            fig_heat = px.imshow(pivot_df, color_continuous_scale='Viridis', aspect="auto")
+            st.plotly_chart(fig_heat, use_container_width=True)
+
+    # Footer
+    st.divider()
+    st.markdown("<center style='color:#94a3b8;'>Dashboard APBD Jawa Barat 2020 • Modular Version</center>", unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
